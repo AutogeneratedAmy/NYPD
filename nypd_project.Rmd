@@ -1,0 +1,127 @@
+---
+title: "NYPD Historical Shooting Data"
+author: "Amy Franks"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+This public data set is a record of shooting incidents in New York City beginning in 2006. It contains available records of demographic information on the perpetrators, victims and associated information about the event. The data is posted on the NYPD website after extraction and review.
+
+Step 1: Import Library
+
+```{r, warning=FALSE, message=FALSE, results='hide'}
+library(tidyverse)
+library(lubridate)
+
+```
+
+Step 2: Load Data
+
+read_csv() reads comma delimited files
+
+```{r}
+url_in <- "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+nypd <- read_csv(url_in)
+spec(nypd)
+```
+
+Step 3: Tidy and Transform Data
+
+First remove columns that are unnecessary for the analysis, then ensure that the data types are correct. Then, explore the data set noting any missing data.
+
+```{r}
+nypd <- nypd %>%
+  select(-c(JURISDICTION_CODE, LOCATION_DESC, X_COORD_CD, Y_COORD_CD, Latitude, Longitude, Lon_Lat))
+
+nypd$OCCUR_DATE <- mdy(nypd$OCCUR_DATE)
+  
+colnames(nypd)
+
+summary(nypd)
+
+colSums(is.na(nypd))
+  
+```
+
+Step 4: Add Visualizations and Analysis
+
+We can observe that a large proportion of the demographic data is missing. These discrepancies could have numerous points of origins including on going investigation, procedural differences between precincts or even record keeping errors. The precise reasons for this data's absence will not be speculated on here as a great deal of additional information would need to be included in the analysis. However, we can make some observations about what data is missing and from where. We can begin by noting which boroughs are most frequently represented.
+
+```{r}
+nypd_w_freq <- nypd %>%
+  group_by(BORO) %>%
+  summarise(n = n()) %>%
+  mutate(Freq = n/sum(n))
+
+nypd_w_freq
+
+ggplot(data = nypd, aes(x = BORO)) +
+  geom_bar(fill = "darkslategray4") +
+  labs(title = "New York City Boroughs", 
+       x = "Boroughs",
+       y = "Number of Shooting Incidents")
+
+```
+
+Now identify what proportion of the demographic data is missing.
+
+```{r}
+nypd_count_na <- nypd %>% 
+     group_by(BORO) %>% 
+     summarise(across(PERP_AGE_GROUP:PERP_RACE,  ~sum(is.na(.))))
+
+nypd_count_na
+
+nypd_count_na <- nypd_count_na %>%
+  full_join(nypd_w_freq) %>%
+  mutate(percent_missing = (as.numeric(PERP_AGE_GROUP)) /n)%>%
+  mutate(percent_recorded = 1 - percent_missing)
+
+nypd_count_na
+
+ggplot(data = nypd_count_na, aes(
+  x = BORO, 
+  y = n, 
+  fill = percent_missing)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "New York City Boroughs", 
+       x = "Boroughs",
+       y = "Number of Shooting Incidents")
+
+
+```
+
+We can see that Brooklyn is both missing the most data and is represented in our data set most frequently.
+
+Now we can also observe what day is most frequently represented.
+
+```{r}
+nypd$day <- wday(nypd$OCCUR_DATE, label = TRUE)
+
+ggplot(data = nypd, aes(x = day)) + 
+  geom_bar(fill = "darkslategray4") +
+  labs(title = "Count of Shootings Grouped by Day", x = "Day of the Week", y = "Number of Shootings")
+
+```
+
+It appears that the weekends in New York are the most dangerous.
+
+Step 5: Modeling
+
+We now apply a simple linear model comparing the incidents flagged as murders against the day of the occurrence.
+
+```{r}
+nypd = nypd %>%
+  replace_na(list(PERP_AGE_GROUP = "N/A", PERP_SEX = "N/A", PERP_RACE = "N/A"))
+
+summary(lm(nypd$STATISTICAL_MURDER_FLAG ~ nypd$day))
+
+```
+
+Based on this analysis, while shootings are more likely to occur on the weekends there is not a relationship between the day of the shooting and whether or not it becomes a murder.
+
+Step 6: Identify Bias
+
+I tend to be immediately suspicious of missing data. My background is in regulated laboratories where a well established chain of custody of samples is critical and all data management must be highly transparent. In order to address this data set without bias, I had to set aside my natural suspicion of missing and proceed with the assumption that no malice was intended and there were other explanations for it's absence.
